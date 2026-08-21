@@ -38,7 +38,7 @@ Kafka·PostgreSQL 인프라(Docker Compose)는 아직 구성 전이라, Kafka �
 ## 진행 상태
 
 ### Phase 0 — 메시징 기초
-- [ ] 1. 동기 통신의 한계
+- [x] 1. 동기 통신의 한계
 - [ ] 2. 비동기 통신과 메시지 브로커의 역할
 - [ ] 3. Point-to-Point vs Pub/Sub
 - [ ] 4. 메시지 큐 vs 이벤트 스트림
