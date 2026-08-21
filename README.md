@@ -45,7 +45,7 @@ Kafka·PostgreSQL 인프라(Docker Compose)는 아직 구성 전이라, Kafka �
 - [x] 5. ApplicationEventPublisher와 실제 브로커의 차이
 
 ### Phase 1 — Kafka 핵심 개념
-- [ ] 6. 토픽, 파티션, 오프셋
+- [x] 6. 토픽, 파티션, 오프셋
 - [ ] 7. Producer 동작 원리
 - [ ] 8. Consumer 동작 원리
 - [ ] 9. Consumer Group

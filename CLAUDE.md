@@ -67,6 +67,12 @@ port/adapter 인터페이스 분리는 복잡성이 생길 때만 도입.
 - 단계별로 개념 설명 → 코드 가이드 제공 → 내가 직접 작성 → 빌드/실행
 - 코드/설정 파일(build.gradle.kts, application.yml, docker-compose.yml, Java 소스 등)은
   대신 작성하거나 직접 생성하지 말 것 — 개념/기능 설명과 코드 가이드만 주고 내가 직접 작업
+- **Phase 0(개념 실습, 정답이 없는 토이 코드)과 Phase 1+(실제 Spring Kafka 등 프레임워크
+  사용)는 코드 가이드 수준이 다르다.** Phase 1부터는 프레임워크의 관용적인(best practice)
+  사용법이 있는 영역이라, 힌트만 주면 임의로 잘못된 패턴을 만들 수 있다 — 이 경우 완성된
+  예시 코드를 먼저 제공하고, 왜 이렇게 작성했는지(설계 이유)를 설명한 뒤 그걸 보고 직접
+  타이핑/응용하게 할 것. (파일을 대신 생성하지 않는 원칙 자체는 유지 — 코드는 채팅에
+  텍스트로 제공하고 실제 파일 생성/저장은 내가 직접 한다.)
 - 각 단계마다 "이걸 왜 이렇게 하는가"를 먼저 설명하고 코드를 제시할 것
 - 빌드/실행 결과를 내가 공유하면 그걸 보고 다음 단계로 안내할 것
 - 막히면 힌트를 먼저 주고, 요청할 때만 답을 제시할 것
@@ -189,4 +195,5 @@ Decision / Drivers / Alternatives / Consequences / Follow-ups.
 - 멀티모듈 전환 완료 (common/learning), Gradle Wrapper 9.6.0
 - Docker Compose 구성 완료 (Zookeeper + Kafka + PostgreSQL)
 - Phase 0 (챕터 1~5) 완료
-- 다음: Phase 1 챕터 6 (토픽, 파티션, 오프셋) — 여기서부터 실제 Kafka를 직접 기동
+- Phase 1 챕터 6 (토픽, 파티션, 오프셋) 완료 — 실제 Kafka(Docker Compose) 사용 시작
+- 다음: Phase 1 챕터 7 (Producer 동작 원리 — 배치, acks, 재시도)
