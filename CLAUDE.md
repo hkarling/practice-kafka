@@ -55,6 +55,8 @@ Phase 4 진입 시 도메인별로 순차 추가 (각각 독립 실행 가능):
 - infra   : Kafka Producer/Consumer, Repository 등 외부 연동
 common은 실제 공통 코드가 생길 때만 추가.
 port/adapter 인터페이스 분리는 복잡성이 생길 때만 도입.
+프로덕션 코드(클래스/패키지)는 챕터 번호가 아니라 기능으로 이름 붙인다 (예: `KafkaConfig`,
+`Chapter07KafkaConfig` 아님) — 챕터 추적성은 테스트 클래스 분리(아래 진행 방식 참고)로 확보.
 
 ## Kafka 설정 전략
 - Phase 0~3: application.yml + 챕터별 프로파일 분리
@@ -191,9 +193,40 @@ Decision / Drivers / Alternatives / Consequences / Follow-ups.
   (SAGA, Outbox, 멱등성 등)은 "이전에 in-process로 했던 것의 확장"
   관점에서 연결해서 설명할 것
 
+## Spring Boot 4.1.0 관련 주의사항
+학습하면서 실제로 부딪혔던, 예전 버전(3.x) 기억으로 예측하면 틀리는 API 변경점들.
+막히면 추측하지 말고 실제 jar를 까보거나(`javap`) 빌드/테스트로 검증할 것 (LOG006,
+LOG007 참고).
+- 의존성 아티팩트: `spring-boot-starter-web`/`spring-kafka` 조합이 아니라
+  `spring-boot-starter-webmvc`, `spring-boot-starter-kafka`가 실제 아티팩트명
+  (Boot가 Kafka 전용 starter를 새로 냄).
+- `KafkaProperties` 패키지가 `org.springframework.boot.autoconfigure.kafka`에서
+  `org.springframework.boot.kafka.autoconfigure`로 이동. `buildProducerProperties()`도
+  더 이상 `SslBundles` 파라미터를 받지 않음 (파라미터 없음).
+- `KafkaTemplate.send()`는 토픽 메타데이터가 캐시되어 있지 않으면(예: 브로커가
+  다운된 상태에서 그 토픽에 처음 보낼 때) `max.block.ms`(기본 60초)까지 내부적으로
+  블로킹될 수 있다 — "항상 즉시 리턴"이 아님.
+
+## 로컬 인프라 재현 (다른 PC에서 이어갈 때)
+Docker 컨테이너 상태(토픽, 컨슈머 그룹 오프셋 등)는 이 머신에만 있고 git에는 없다.
+다른 PC에서 이어가려면:
+1. `docker compose up -d` (Zookeeper + Kafka + PostgreSQL 기동)
+2. `order-events` 토픽 재생성 (파티션 3개 필수 — 빠뜨리면 기본값 1개로 생성됨,
+   LOG006 참고):
+   ```
+   docker compose exec kafka kafka-topics --create --topic order-events \
+     --partitions 3 --replication-factor 1 --bootstrap-server localhost:9092
+   ```
+3. 챕터 진행 시 해당 `application-chapterNN.yaml` 프로파일 활성화
+   (`@ActiveProfiles("chapterNN")`)
+4. 같은 `group-id`로 반복 테스트하면 이전 실행의 커밋/미커밋 오프셋이 남아있어
+   결과가 섞일 수 있음 (LOG006 4번 참고) — 필요하면 토픽을 지우고 재생성
+
 ## 현재 상태
 - 멀티모듈 전환 완료 (common/learning), Gradle Wrapper 9.6.0
 - Docker Compose 구성 완료 (Zookeeper + Kafka + PostgreSQL)
 - Phase 0 (챕터 1~5) 완료
-- Phase 1 챕터 6 (토픽, 파티션, 오프셋) 완료 — 실제 Kafka(Docker Compose) 사용 시작
-- 다음: Phase 1 챕터 7 (Producer 동작 원리 — 배치, acks, 재시도)
+- Phase 1 챕터 6~7 (토픽/파티션/오프셋, Producer 동작 원리) 완료
+- 다음: Phase 1 챕터 8 (Consumer 동작 원리 — 폴링, 커밋, 오프셋 관리)
+- 로컬 Docker의 `order-events` 토픽은 파티션 3개로 생성되어 있고, Chapter 6~7 실습
+  데이터가 누적되어 있음 (다른 PC에서는 위 "로컬 인프라 재현" 절차로 새로 생성 필요)

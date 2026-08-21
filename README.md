@@ -46,7 +46,7 @@ Kafka·PostgreSQL 인프라(Docker Compose)는 아직 구성 전이라, Kafka �
 
 ### Phase 1 — Kafka 핵심 개념
 - [x] 6. 토픽, 파티션, 오프셋
-- [ ] 7. Producer 동작 원리
+- [x] 7. Producer 동작 원리
 - [ ] 8. Consumer 동작 원리
 - [ ] 9. Consumer Group
 - [ ] 10. 이벤트 순서 보장

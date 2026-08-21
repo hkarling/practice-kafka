@@ -31,4 +31,5 @@ class OrderEventProducerTest {
     producer.send("order-B", "결제 시작");
     Thread.sleep(5000);
   }
+
 }
