@@ -188,5 +188,5 @@ Decision / Drivers / Alternatives / Consequences / Follow-ups.
 ## 현재 상태
 - 멀티모듈 전환 완료 (common/learning), Gradle Wrapper 9.6.0
 - Docker Compose 구성 완료 (Zookeeper + Kafka + PostgreSQL)
-- Phase 0 챕터 1 (동기 통신의 한계) 완료
-- 진행 중: Phase 0 챕터 2 (비동기 통신과 메시지 브로커의 역할)
+- Phase 0 (챕터 1~5) 완료
+- 다음: Phase 1 챕터 6 (토픽, 파티션, 오프셋) — 여기서부터 실제 Kafka를 직접 기동

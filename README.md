@@ -42,7 +42,7 @@ Kafka·PostgreSQL 인프라(Docker Compose)는 아직 구성 전이라, Kafka �
 - [x] 2. 비동기 통신과 메시지 브로커의 역할
 - [x] 3. Point-to-Point vs Pub/Sub
 - [x] 4. 메시지 큐 vs 이벤트 스트림
-- [ ] 5. ApplicationEventPublisher와 실제 브로커의 차이
+- [x] 5. ApplicationEventPublisher와 실제 브로커의 차이
 
 ### Phase 1 — Kafka 핵심 개념
 - [ ] 6. 토픽, 파티션, 오프셋
