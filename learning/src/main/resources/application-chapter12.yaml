@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: learning
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: chapter12-default-group
+      auto-offset-reset: earliest

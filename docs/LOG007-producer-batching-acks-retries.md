@@ -157,6 +157,23 @@ acks=0   총 소요시간: 312ms  (약 15.6ms/건)
 클러스터에서 여러 replica의 응답을 기다려야 하는 상황이었다면 차이가 훨씬 컸을
 것이다.
 
+> **[Chapter 12에서 발견한 정정 사항]** 위 수치는 사실 **acks=0끼리 비교한
+> 것**이었다. Spring Boot의 `@ConditionalOnMissingBean(KafkaTemplate.class)`이
+> 제네릭을 무시하고 raw 타입으로 판단하는데, `acksZeroKafkaTemplate` 빈이
+> 존재한다는 이유만으로 Boot의 진짜 기본(acks=all) `KafkaTemplate` 빈이 아예
+> 안 만들어지고 있었다. 그 결과 `kafkaTemplate` 필드도 타입 매칭상 유일한
+> 후보였던 `acksZeroKafkaTemplate`에 조용히 연결되어 있었다 — 즉 위 비교는
+> acks=0을 acks=0과 비교한 것. `KafkaConfig`에 명시적 `kafkaTemplate` 빈을
+> 추가해 바로잡은 뒤 재측정한 결과:
+> ```
+> acks=all 총 소요시간: 423ms
+> acks=0   총 소요시간: 337ms
+> ```
+> 진짜 비교로 다시 재도 원래 수치와 비슷하게 나와서, **"acks=0이 조금 더
+> 빠르지만 단일 브로커 환경에선 차이가 크지 않다"는 결론 자체는 그대로
+> 유지된다.** 다만 처음 실린 수치와 그 근거가 된 실험은 유효하지 않았다는
+> 점은 정정해둔다. 자세한 원인 분석은 LOG012 참고.
+
 ### 3. 브로커 다운 중 발행 → 재시도 → 복구 후 전달
 
 `retryWhenBrokerRecovers()`(위 1번 코드 참고)는 `.get()` 대신 `.whenComplete()`
@@ -257,3 +274,10 @@ A. 아니다. 토픽 메타데이터가 캐시되어 있지 않으면 `max.block
 
 ### Follow-ups
 Chapter 8 — Consumer 동작 원리 (폴링, 커밋, 오프셋 관리).
+
+**[Chapter 12 추가 Follow-up]** `acksZeroKafkaTemplate` 같은 커스텀
+`ProducerFactory`/`KafkaTemplate` 빈을 추가하면 Spring Boot의 자동 구성
+기본 빈이 raw 타입 기준으로 조용히 사라질 수 있다는 게 Chapter 12에서
+드러났다 — 이번 챕터의 `compareAcks()` 실험이 실제로 이 문제를 겪었다
+(위 진행 과정 2번 정정 사항 참고). 앞으로 커스텀 프로듀서/컨슈머 팩토리
+빈을 추가할 때는 Boot 기본 빈 대체품을 명시적으로 같이 만드는 걸 습관화한다.
