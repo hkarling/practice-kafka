@@ -49,7 +49,7 @@ Kafka·PostgreSQL 인프라(Docker Compose)는 아직 구성 전이라, Kafka �
 - [x] 7. [Producer 동작 원리](docs/LOG007-producer-batching-acks-retries.md)
 - [x] 8. [Consumer 동작 원리](docs/LOG008-consumer-polling-commit-offset.md)
 - [x] 9. [Consumer Group](docs/LOG009-consumer-group-rebalancing.md)
-- [ ] 10. 이벤트 순서 보장
+- [x] 10. [이벤트 순서 보장](docs/LOG010-partition-key-design.md)
 
 ### Phase 2 — Spring Kafka 활용
 - [ ] 11. KafkaTemplate + @KafkaListener 기본
