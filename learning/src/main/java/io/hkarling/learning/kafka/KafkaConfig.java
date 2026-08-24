@@ -14,9 +14,12 @@ import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
+import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
+import org.springframework.util.backoff.ExponentialBackOff;
 
 @Configuration
 public class KafkaConfig {
@@ -96,6 +99,26 @@ public class KafkaConfig {
   @Bean
   public KafkaTemplate<String, String> kafkaTemplate(ProducerFactory<String, String> stringProducerFactory) {
     return new KafkaTemplate<>(stringProducerFactory);
+  }
+
+  @Bean
+  public DefaultErrorHandler dlqErrorHandler(KafkaTemplate<String, String> kafkaTemplate) {
+    DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate);
+
+    ExponentialBackOff backOff = new ExponentialBackOff(500, 2.0);
+    backOff.setMaxInterval(5000);
+    backOff.setMaxElapsedTime(15000);
+
+    return new DefaultErrorHandler(recoverer, backOff);
+  }
+
+  @Bean
+  public ConcurrentKafkaListenerContainerFactory<String, String> dlqKafkaListenerContainerFactory(
+      ConsumerFactory<String, String> stringConsumerFactory, DefaultErrorHandler dlqErrorHandler) {
+    ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
+    factory.setConsumerFactory(stringConsumerFactory);
+    factory.setCommonErrorHandler(dlqErrorHandler);
+    return factory;
   }
 
 }
