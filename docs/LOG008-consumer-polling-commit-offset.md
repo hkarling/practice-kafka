@@ -37,6 +37,128 @@ Consumer가 메시지를 가져오는 방식(폴링)과 "여기까지 처리했�
 커밋 전략을 같은 애플리케이션 안에서 비교했다. `fail`로 시작하는 값은 예외를 던져
 재시도를 유도했다.
 
+```yaml
+# application-chapter08.yaml
+spring:
+  application:
+    name: learning
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: chapter08-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+```
+
+```java
+// KafkaConfig.java (Chapter 7의 acksZero 빈에 이어 manualAck 팩토리 추가)
+package io.hkarling.learning.kafka;
+
+import java.util.Map;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
+import org.springframework.kafka.core.ConsumerFactory;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
+import org.springframework.kafka.listener.ContainerProperties;
+
+@Configuration
+public class KafkaConfig {
+
+  @Bean
+  public ProducerFactory<String, String> acksZeroProducerFactory(KafkaProperties properties) {
+    Map<String, Object> props = properties.buildProducerProperties();
+    props.put(ProducerConfig.ACKS_CONFIG, "0");
+    return new DefaultKafkaProducerFactory<>(props);
+  }
+
+  @Bean
+  public KafkaTemplate<String, String> acksZeroKafkaTemplate(
+      ProducerFactory<String, String> acksZeroProducerFactory) {
+    return new KafkaTemplate<>(acksZeroProducerFactory);
+  }
+
+  @Bean
+  public ConcurrentKafkaListenerContainerFactory<String, String> manualAckKafkaListenerContainerFactory(
+      ConsumerFactory<String, String> consumerFactory) {
+    ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
+    factory.setConsumerFactory(consumerFactory);
+    factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+    return factory;
+  }
+
+}
+```
+
+```java
+// OrderEventManualAckConsumer.java
+package io.hkarling.learning.kafka;
+
+import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.stereotype.Component;
+
+@Slf4j
+@Component
+public class OrderEventManualAckConsumer {
+
+  @KafkaListener(
+      topics = KafkaTopics.ORDER_EVENTS,
+      groupId = "chapter08-manual-group",
+      containerFactory = "manualAckKafkaListenerContainerFactory")
+  public void listen(ConsumerRecord<String, String> consumerRecord, Acknowledgment acknowledgment) {
+    if (consumerRecord.value() != null && consumerRecord.value().startsWith("fail")) {
+      log.warn("처리 실패 시뮬레이션: partition={}, offset={}, value={}",
+          consumerRecord.partition(), consumerRecord.offset(), consumerRecord.value());
+      throw new IllegalStateException("처리 실패: " + consumerRecord.value());
+    }
+    log.info("처리 완료 → 커밋: partition={}, offset={}, value={}",
+        consumerRecord.partition(), consumerRecord.offset(), consumerRecord.value());
+    acknowledgment.acknowledge();
+  }
+}
+```
+
+```java
+// ManualAckConsumerTest.java
+package io.hkarling.learning.kafka;
+
+import java.util.concurrent.ExecutionException;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.test.context.ActiveProfiles;
+
+@Slf4j
+@SpringBootTest
+@ActiveProfiles("chapter08")
+@DisplayName("Consumer 동작 원리 — 커밋/오프셋")
+class ManualAckConsumerTest {
+
+  @Autowired
+  KafkaTemplate<String, String> kafkaTemplate;
+
+  @Test
+  @DisplayName("정상 메시지는 즉시 커밋되고, fail 메시지는 재시도 후 포기된다")
+  void manualAckAndRetry() throws InterruptedException, ExecutionException {
+    kafkaTemplate.send("order-events", "manual-ok-1").get();
+    kafkaTemplate.send("order-events", "fail-1").get();
+    kafkaTemplate.send("order-events", "manual-ok-2").get();
+
+    Thread.sleep(15000); // 콘솔 로그로 처리/재시도/포기 흐름 관찰
+  }
+}
+```
+
 ### 2. 첫 번째 삽질 — `@KafkaListener` 속성값 오류
 
 `OrderEventManualAckConsumer`를 처음 작성했을 때 `chapter08-manual-group` 컨슈머

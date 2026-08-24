@@ -40,14 +40,121 @@ Phase 1부터는 Spring Kafka라는 프레임워크의 관용적 사용법이 �
 예시 코드를 먼저 제공받고 그 설계 이유를 이해하는 방식으로 전환했다 (Phase 0의
 "힌트만 주고 직접 설계"와 다른 접근 — CLAUDE.md에도 반영).
 
-- `KafkaTopics` — 토픽 이름을 상수화 (`@KafkaListener(topics=...)`가 컴파일 타임
-  상수만 허용하기 때문)
-- `OrderEventProducer` — `KafkaTemplate`을 직접 여기저기서 주입받지 않고 전용
-  컴포넌트로 감싸서 발행 로직을 한 곳에 모음
-- `OrderEventConsumer` — `@KafkaListener` + `ConsumerRecord<String, String>`으로
-  `partition()`/`offset()`까지 확인 가능하게 구성
-- `application-chapter06.yaml` — `bootstrap-servers`, `consumer.group-id`,
-  `auto-offset-reset: earliest`
+```yaml
+# application-chapter06.yaml
+spring:
+  application:
+    name: learning
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: chapter06-group
+      auto-offset-reset: earliest
+```
+
+```java
+// KafkaTopics.java — 토픽 이름을 상수화 (@KafkaListener(topics=...)가
+// 컴파일 타임 상수만 허용하기 때문)
+package io.hkarling.learning.kafka;
+
+public final class KafkaTopics {
+
+  public static final String ORDER_EVENTS = "order-events";
+
+  private KafkaTopics() {
+  }
+
+}
+```
+
+```java
+// OrderEventProducer.java — KafkaTemplate을 직접 여기저기서 주입받지 않고
+// 전용 컴포넌트로 감싸서 발행 로직을 한 곳에 모음
+package io.hkarling.learning.kafka;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Component;
+
+@Slf4j
+@RequiredArgsConstructor
+@Component
+public class OrderEventProducer {
+
+  private final KafkaTemplate<String, String> kafkaTemplate;
+
+  public void send(String value) {
+    kafkaTemplate.send(KafkaTopics.ORDER_EVENTS, value);
+  }
+
+  public void send(String key, String value) {
+    kafkaTemplate.send(KafkaTopics.ORDER_EVENTS, key, value);
+  }
+
+}
+```
+
+```java
+// OrderEventConsumer.java — @KafkaListener + ConsumerRecord<String, String>으로
+// partition()/offset()까지 확인 가능하게 구성
+package io.hkarling.learning.kafka;
+
+import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Component;
+
+@Slf4j
+@Component
+public class OrderEventConsumer {
+
+  @KafkaListener(topics = KafkaTopics.ORDER_EVENTS)
+  public void listen(ConsumerRecord<String, String> consumerRecord) {
+    log.info("partition={}, offset={}, key={}, value={}",
+        consumerRecord.partition(), consumerRecord.offset(), consumerRecord.key(), consumerRecord.value());
+  }
+}
+```
+
+```java
+// OrderEventProducerTest.java
+package io.hkarling.learning.kafka;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+
+@SpringBootTest
+@ActiveProfiles("chapter06")
+@DisplayName("토픽, 파티션, 오프셋")
+class OrderEventProducerTest {
+
+  @Autowired
+  OrderEventProducer producer;
+
+  @Test
+  @DisplayName("키 없이 발행하면 파티션에 고르게 분산된다")
+  void sendWithoutKey() throws InterruptedException {
+    for (int i = 1; i <= 6; i++) {
+      producer.send("order-" + i);
+    }
+    Thread.sleep(5000);
+  }
+
+  @Test
+  @DisplayName("같은 키로 발행하면 항상 같은 파티션으로 간다")
+  void sendWithKey() throws InterruptedException {
+    producer.send("order-A", "결제 시작");
+    producer.send("order-A", "결제 완료");
+    producer.send("order-B", "결제 시작");
+    Thread.sleep(5000);
+  }
+
+}
+```
 
 ### 3. 첫 실행(2초 대기) — 로그가 하나도 안 찍힘
 

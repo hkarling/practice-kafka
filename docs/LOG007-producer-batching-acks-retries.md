@@ -23,9 +23,118 @@ Phase 1 챕터 7. LOG006에서 관찰만 했던 현상 — "키 없는 메시지
 
 ### 1. 토픽/프로파일/코드 준비
 
-- `application-chapter07.yaml`에 `producer.acks: all` 추가.
-- `KafkaConfig`에 `acks=0`용 `ProducerFactory`/`KafkaTemplate` 빈을 추가로 구성 —
-  기본 빈과 별도로 acks만 다른 프로듀서를 비교하기 위함.
+`application-chapter07.yaml`에 `producer.acks: all` 추가:
+
+```yaml
+# application-chapter07.yaml
+spring:
+  application:
+    name: learning
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: chapter07-group
+      auto-offset-reset: earliest
+    producer:
+      acks: all
+```
+
+`KafkaConfig`에 `acks=0`용 `ProducerFactory`/`KafkaTemplate` 빈을 추가로 구성 —
+기본 빈과 별도로 acks만 다른 프로듀서를 비교하기 위함:
+
+```java
+// KafkaConfig.java
+package io.hkarling.learning.kafka;
+
+import java.util.Map;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
+
+@Configuration
+public class KafkaConfig {
+
+  @Bean
+  public ProducerFactory<String, String> acksZeroProducerFactory(KafkaProperties properties) {
+    Map<String, Object> props = properties.buildProducerProperties();
+    props.put(ProducerConfig.ACKS_CONFIG, "0");
+    return new DefaultKafkaProducerFactory<>(props);
+  }
+
+  @Bean
+  public KafkaTemplate<String, String> acksZeroKafkaTemplate(
+      ProducerFactory<String, String> acksZeroProducerFactory) {
+    return new KafkaTemplate<>(acksZeroProducerFactory);
+  }
+}
+```
+
+```java
+// ProducerAcksTest.java
+package io.hkarling.learning.kafka;
+
+import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.test.context.ActiveProfiles;
+
+@Slf4j
+@SpringBootTest
+@ActiveProfiles("chapter07")
+@DisplayName("Producer 동작 원리 — acks")
+class ProducerAcksTest {
+
+  @Autowired
+  KafkaTemplate<String, String> kafkaTemplate; // 기본 설정 (acks=all, yaml에서 지정)
+
+  @Autowired
+  KafkaTemplate<String, String> acksZeroKafkaTemplate;
+
+  @Test
+  @DisplayName("acks=all과 acks=0의 발행 소요시간을 비교한다")
+  void compareAcks() throws Exception {
+    long start1 = System.currentTimeMillis();
+    for (int i = 0; i < 20; i++) {
+      kafkaTemplate.send("order-events", "acks-all-" + i).get();
+    }
+    log.info("acks=all 총 소요시간: {}ms", System.currentTimeMillis() - start1);
+
+    long start2 = System.currentTimeMillis();
+    for (int i = 0; i < 20; i++) {
+      acksZeroKafkaTemplate.send("order-events", "acks-zero-" + i).get();
+    }
+    log.info("acks=0 총 소요시간: {}ms", System.currentTimeMillis() - start2);
+  }
+
+  @Test
+  @DisplayName("브로커가 다운된 동안 발행하면 재시도 후 복구 시 성공한다")
+  void retryWhenBrokerRecovers() throws InterruptedException {
+    for (int i = 0; i < 3; i++) {
+      String value = "retry-test-" + i;
+      kafkaTemplate.send("order-events", value)
+          .whenComplete((result, ex) -> {
+            if (ex != null) {
+              log.error("{} 발행 실패: {}", value, ex.getMessage());
+            } else {
+              log.info("{} 발행 성공: partition={}, offset={}",
+                  value, result.getRecordMetadata().partition(), result.getRecordMetadata().offset());
+            }
+          });
+    }
+    log.info("발행 요청 3건 제출 완료 (즉시 리턴, 브로커 상태와 무관)");
+
+    Thread.sleep(60000); // 이 시간 안에 브로커를 복구시켜야 함
+  }
+
+}
+```
 
 **시행착오**: `KafkaProperties.buildProducerProperties(null)`가 컴파일 에러였다.
 Spring Boot 4.1.0에서 `KafkaProperties`가 `org.springframework.boot.autoconfigure.kafka`
@@ -50,15 +159,8 @@ acks=0   총 소요시간: 312ms  (약 15.6ms/건)
 
 ### 3. 브로커 다운 중 발행 → 재시도 → 복구 후 전달
 
-`.get()` 대신 `.whenComplete()` 콜백으로 비동기 확인하도록 구성:
-```java
-kafkaTemplate.send("order-events", value)
-    .whenComplete((result, ex) -> {
-        if (ex != null) log.error("{} 발행 실패: {}", value, ex.getMessage());
-        else log.info("{} 발행 성공: partition={}, offset={}", value,
-                result.getRecordMetadata().partition(), result.getRecordMetadata().offset());
-    });
-```
+`retryWhenBrokerRecovers()`(위 1번 코드 참고)는 `.get()` 대신 `.whenComplete()`
+콜백으로 비동기 확인하도록 구성했다.
 
 **절차**: ① `docker compose stop kafka` → ② 테스트 실행(3건 발행 시도) → ③ 10~15초
 관찰 → ④ `docker compose start kafka` → ⑤ 60초 대기 동안 복구 확인.
