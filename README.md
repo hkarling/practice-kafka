@@ -38,16 +38,16 @@ Kafka·PostgreSQL 인프라(Docker Compose)는 아직 구성 전이라, Kafka �
 ## 진행 상태
 
 ### Phase 0 — 메시징 기초
-- [x] 1. 동기 통신의 한계
-- [x] 2. 비동기 통신과 메시지 브로커의 역할
-- [x] 3. Point-to-Point vs Pub/Sub
-- [x] 4. 메시지 큐 vs 이벤트 스트림
-- [x] 5. ApplicationEventPublisher와 실제 브로커의 차이
+- [x] 1. [동기 통신의 한계](docs/LOG001-synchronous-communication-limits.md)
+- [x] 2. [비동기 통신과 메시지 브로커의 역할](docs/LOG002-async-communication-broker-role.md)
+- [x] 3. [Point-to-Point vs Pub/Sub](docs/LOG003-point-to-point-vs-pubsub.md)
+- [x] 4. [메시지 큐 vs 이벤트 스트림](docs/LOG004-message-queue-vs-event-stream.md)
+- [x] 5. [ApplicationEventPublisher와 실제 브로커의 차이](docs/LOG005-application-event-publisher-vs-broker.md)
 
 ### Phase 1 — Kafka 핵심 개념
-- [x] 6. 토픽, 파티션, 오프셋
-- [x] 7. Producer 동작 원리
-- [ ] 8. Consumer 동작 원리
+- [x] 6. [토픽, 파티션, 오프셋](docs/LOG006-topic-partition-offset.md)
+- [x] 7. [Producer 동작 원리](docs/LOG007-producer-batching-acks-retries.md)
+- [x] 8. [Consumer 동작 원리](docs/LOG008-consumer-polling-commit-offset.md)
 - [ ] 9. Consumer Group
 - [ ] 10. 이벤트 순서 보장
 
