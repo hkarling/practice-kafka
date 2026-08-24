@@ -52,7 +52,7 @@ Kafka·PostgreSQL 인프라(Docker Compose)는 아직 구성 전이라, Kafka �
 - [x] 10. [이벤트 순서 보장](docs/LOG010-partition-key-design.md)
 
 ### Phase 2 — Spring Kafka 활용
-- [ ] 11. KafkaTemplate + @KafkaListener 기본
+- [x] 11. [KafkaTemplate + @KafkaListener 기본](docs/LOG011-kafkatemplate-kafkalistener-basics.md)
 - [ ] 12. 직렬화/역직렬화
 - [ ] 13. 에러 처리 (재시도, DLQ)
 - [ ] 14. Testcontainers Kafka 통합 테스트
