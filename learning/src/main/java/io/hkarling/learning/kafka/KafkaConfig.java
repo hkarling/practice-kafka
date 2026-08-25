@@ -121,4 +121,18 @@ public class KafkaConfig {
     return factory;
   }
 
+  @Bean
+  public ProducerFactory<String, String> transactionalProducerFactory(KafkaProperties properties) {
+    Map<String, Object> props = properties.buildProducerProperties();
+    DefaultKafkaProducerFactory<String, String> factory = new DefaultKafkaProducerFactory<>(props);
+    factory.setTransactionIdPrefix("chapter15-tx-");
+    return factory;
+  }
+
+  @Bean
+  public KafkaTemplate<String, String> transactionalKafkaTemplate(
+      ProducerFactory<String, String> transactionalProducerFactory) {
+    return new KafkaTemplate<>(transactionalProducerFactory);
+  }
+  
 }
