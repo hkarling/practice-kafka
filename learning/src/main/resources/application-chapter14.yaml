@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: learning
+  kafka:
+    consumer:
+      group-id: chapter14-default-group
+      auto-offset-reset: earliest

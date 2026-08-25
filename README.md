@@ -55,7 +55,7 @@ Kafka·PostgreSQL 인프라(Docker Compose)는 아직 구성 전이라, Kafka �
 - [x] 11. [KafkaTemplate + @KafkaListener 기본](docs/LOG011-kafkatemplate-kafkalistener-basics.md)
 - [x] 12. [직렬화/역직렬화](docs/LOG012-json-serialization.md)
 - [x] 13. [에러 처리 (재시도, DLQ)](docs/LOG013-error-handling-retry-dlq.md)
-- [ ] 14. Testcontainers Kafka 통합 테스트
+- [x] 14. [Testcontainers Kafka 통합 테스트](docs/LOG014-testcontainers-kafka-integration-test.md)
 - [ ] 15. 트랜잭션 (Kafka + DB)
 
 ### Phase 3 — 핵심 패턴 심화
