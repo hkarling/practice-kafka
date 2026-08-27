@@ -59,7 +59,7 @@ Kafka·PostgreSQL 인프라(Docker Compose)는 아직 구성 전이라, Kafka �
 - [x] 15. [트랜잭션 (Kafka + DB)](docs/LOG015-kafka-db-transaction.md)
 
 ### Phase 3 — 핵심 패턴 심화
-- [ ] 16. at-least-once vs exactly-once
+- [x] 16. [at-least-once vs exactly-once](docs/LOG016-at-least-once-vs-exactly-once.md)
 - [ ] 17. 멱등성 설계
 - [ ] 18. Outbox 패턴
 - [ ] 19. Kafka Streams 기초
