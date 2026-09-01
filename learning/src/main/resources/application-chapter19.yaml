@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: learning
+  datasource:
+    url: jdbc:postgresql://localhost:5432/practice_kafka
+    username: kafka
+    password: kafka
+  kafka:
+    consumer:
+      group-id: chapter19-default-group
+      auto-offset-reset: earliest
