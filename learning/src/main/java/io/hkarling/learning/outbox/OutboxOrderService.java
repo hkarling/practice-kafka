@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 @RequiredArgsConstructor
 @Service
-@Profile("chapter18")
+@Profile({"chapter18", "chapter20"})
 public class OutboxOrderService {
 
   private final OrderRepository orderRepository;

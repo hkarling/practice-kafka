@@ -63,7 +63,7 @@ Kafka·PostgreSQL 인프라(Docker Compose)는 아직 구성 전이라, Kafka �
 - [x] 17. [멱등성 설계](docs/LOG017-idempotent-consumer-design.md)
 - [x] 18. [Outbox 패턴](docs/LOG018-outbox-pattern.md)
 - [x] 19. [Kafka Streams 기초](docs/LOG019-kafka-streams-basics.md)
-- [ ] 20. CQRS + Kafka
+- [x] 20. [CQRS + Kafka](docs/LOG020-cqrs-kafka.md)
 
 ### Phase 4 — 실습 예제 (멀티모듈)
 - [ ] 21. 이커머스 SAGA

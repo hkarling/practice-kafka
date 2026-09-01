@@ -6,7 +6,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @Configuration
 @EnableScheduling
-@Profile("chapter18")
+@Profile({"chapter18", "chapter20"})
 public class SchedulingConfig {
 
 }

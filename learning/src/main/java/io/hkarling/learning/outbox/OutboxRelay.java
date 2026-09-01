@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @RequiredArgsConstructor
 @Component
-@Profile("chapter18")
+@Profile({"chapter18", "chapter20"})
 public class OutboxRelay {
 
   private final OutboxEventRepository outboxEventRepository;
