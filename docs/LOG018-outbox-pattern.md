@@ -11,30 +11,64 @@ Follow-up에서는 컨슈머 멱등성이 "이미 도착한 메시지의 중복 
 
 ## 개념 정리
 
-- **Dual write 문제의 본질**: DB와 Kafka는 서로 다른 저장소이고, 이 둘 사이에 "함께
-  성공하거나 함께 실패"를 보장하는 표준 트랜잭션 프로토콜이 없다. 진짜 2단계 커밋(2PC)을
-  하려면 Kafka가 XA 리소스 매니저 역할을 해야 하는데 지원하지 않는다. Ch15의 동기화는
-  2PC가 아니라 "같은 스레드 안에서 트랜잭션 커밋에 콜백을 거는" 수준이었다.
-- **Outbox의 핵심 트릭 — 문제를 시스템 밖에서 안으로 옮기기**: "서로 다른 두 시스템 간
-  원자성 문제"를 풀지 않고, "RDBMS 하나 안에서의 원자성 문제"로 치환한다. `orders` 쓰기와
-  `outbox_event` 쓰기를 같은 DB 트랜잭션에 넣으면 원자성은 DB가 그냥 보장해준다. Kafka로의
-  실제 발행은 이 트랜잭션과 완전히 분리된 별도 단계(Relay)로 미뤄진다.
-- **트레이드오프가 이동하는 세 지점**:
-  - 지연 — 커밋 시점과 실제 Kafka 발행 시점 사이에 폴링 주기(`fixedDelay`)만큼 지연이 생긴다.
-  - 중복 — Relay의 "발행 → 마킹" 사이에도 크래시 가능성이 남는다. 즉 Outbox는
-    **at-least-once**이고, Ch17의 컨슈머 멱등성이 반드시 짝을 이뤄야 한다.
-  - 순서 — 같은 `aggregate_id`의 이벤트가 같은 파티션에 들어가야 순서가 유지된다.
-    Kafka 발행 시 파티션 키를 `aggregate_id`로 일관되게 써야 하는 이유다(Ch10 파티션 키
-    설계와 직결).
-- **Polling publisher vs CDC(Debezium)**: 이번 챕터는 JdbcTemplate 기반 스케줄러로 outbox
-  테이블을 직접 폴링하는 방식을 썼다. 실무에서는 DB WAL을 직접 읽는 CDC(Debezium Outbox
-  Event Router)가 지연·DB 부하 면에서 더 흔히 쓰이지만, Kafka Connect 인프라가 필요해 이
-  프로젝트 범위 밖이다.
-- **Outbox + Idempotent Consumer = practical exactly-once**: Outbox(발행 측 — 유실 없음,
-  at-least-once)와 Ch17 Idempotent Consumer(수신 측 — 중복 제거)를 합치면 애플리케이션
-  레벨에서 "정확히 한 번 처리된 것처럼 보이는" 효과를 얻는다. 이건 Ch16에서 다룬 Kafka
-  자체의 exactly-once semantics(브로커 레벨, 프로듀서 세션 단위)와는 다른 레이어의
-  보장이다.
+### 1. Dual write 문제의 본질
+
+DB와 Kafka는 서로 다른 저장소이며, 이 둘 사이에 "함께 성공하거나 함께 실패"를 보장하는
+표준 트랜잭션 프로토콜이 없다. 진짜 2단계 커밋(2PC)을 하려면 Kafka가 XA 리소스 매니저
+역할을 해야 하는데, Kafka는 이를 지원하지 않는다. Ch15에서 다룬 Spring Kafka의 DB-Kafka
+동기화도 2PC가 아니라 "같은 스레드 안에서 트랜잭션 커밋에 콜백을 거는" 수준이었고,
+그래서 DB 커밋 직후 프로세스가 죽는 크래시 윈도우를 못 막았다 — 커밋과 커밋 사이에
+진짜 원자적 경계가 없기 때문이다.
+
+### 2. Outbox의 핵심 트릭 — 문제를 시스템 밖에서 안으로 옮기기
+
+Outbox 패턴은 "서로 다른 두 시스템 간 원자성 문제"를 아예 풀지 않는다. 대신 "RDBMS 하나
+안에서의 원자성 문제"로 치환한다. RDBMS는 ACID의 A(원자성)를 오래전부터 잘 지원하므로,
+`orders` 테이블 쓰기와 `outbox_event` 테이블 쓰기를 같은 트랜잭션에 넣기만 하면 원자성은
+별도 기술 없이 DB가 그냥 보장해준다. Kafka로의 실제 발행은 이 트랜잭션과 완전히 분리된
+별도 단계(Relay)로 미뤄진다 — 그 시점에 Kafka가 죽어있어도, 네트워크가 끊겨도 비즈니스
+트랜잭션 자체는 영향을 받지 않는다.
+
+### 3. 이 트레이드오프가 어디로 이동하는가
+
+원자성 문제를 없애는 대신, Outbox는 세 가지 새로운 문제를 끌어들인다.
+
+- **지연**: 커밋 시점과 실제 Kafka 발행 시점 사이에 폴링 주기(`fixedDelay`)만큼 지연이
+  생긴다. 이번 챕터는 1초로 설정했는데, 실시간성이 중요한 도메인이면 이 지연 자체가
+  제약이 될 수 있다.
+- **중복**: Relay의 "발행 → 마킹" 사이에도 크래시 가능성은 남는다. 발행은 됐는데 마킹
+  전에 죽으면 재기동 후 같은 행을 다시 집어 재발행한다 — 즉 Outbox는 **at-least-once**다.
+  그래서 Ch17에서 만든 컨슈머 멱등성이 반드시 짝을 이뤄야 한다. Outbox 혼자서는 "유실
+  없음"만 보장하고 "중복 없음"은 보장하지 못한다.
+- **순서**: 같은 `aggregate_id`(orderId)에 대해 여러 이벤트를 저장했다면, `id` 순서대로
+  SELECT하는 것만으로는 부족하다 — Kafka로 발행할 때 파티션 키를 `aggregate_id`로
+  일관되게 써야 같은 파티션에 들어가 순서가 유지된다(Ch10 파티션 키 설계와 직결). 이번
+  챕터에서 실제로 이 부분을 빠뜨렸다가 고친 과정은 "진행 과정" 4단계에 그대로 남겨뒀다.
+
+### 4. Polling publisher vs CDC(Debezium)
+
+Outbox를 실제로 구현하는 방식은 크게 둘로 갈린다.
+
+| | Polling publisher (이번 챕터) | CDC / Transaction log tailing (Debezium) |
+|---|---|---|
+| 구현 | JdbcTemplate 기반 스케줄러로 충분 | Kafka Connect + Debezium 커넥터 필요 |
+| 지연 | 폴링 주기만큼 발생 | DB WAL을 직접 읽어 커밋 직후 거의 즉시 |
+| DB 부하 | 폴링 쿼리가 지속적으로 발생 | 없음 (WAL 스트리밍) |
+| 운영 복잡도 | 낮음 | Kafka Connect 클러스터 관리 필요 |
+| 스케일아웃 | 여러 인스턴스가 동시에 폴링하면 같은 행을 중복 픽업할 위험 → `SELECT ... FOR UPDATE SKIP LOCKED` 필요 | 커넥터가 단일 오프셋으로 관리 |
+
+이 프로젝트는 Kafka Connect를 아직 다루지 않으므로, 이번 챕터는 폴링 방식으로 원리만
+확인했다. 실무 대규모 시스템에서는 CDC 기반 Outbox(Debezium Outbox Event Router)가 더
+흔히 쓰인다는 점만 기억해두면 된다.
+
+### 5. 왜 "완전한 exactly-once"가 아니라 "practical exactly-once"인가
+
+Outbox(발행 측 — 유실 없음, at-least-once)와 Idempotent Consumer(Ch17, 수신 측 — 중복
+제거) 조합은 "정확히 한 번 처리된 것처럼 보이는" 효과를 애플리케이션 레벨에서 만들어낸다.
+이는 Ch16에서 다룬 Kafka 자체의 exactly-once semantics(프로듀서 세션 단위 브로커 레벨
+중복 방지)와는 다른 레이어의 이야기다 — 그쪽은 브로커가 보장하는 것이고, Outbox +
+Idempotent Consumer는 애플리케이션이 end-to-end로 직접 보장하는 것이다. 이 둘을 구분해서
+이해하는 게 이번 챕터의 핵심이다.
 
 ## 진행 과정
 

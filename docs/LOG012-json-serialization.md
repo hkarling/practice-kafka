@@ -9,28 +9,59 @@ Phase 2 챕터 12. 지금까지 계속 `String` 값만 주고받았는데, 실�
 
 ## 개념 정리
 
-- **JSON 직렬화**: Spring Kafka가 Jackson 기반으로 제공하는
-  `Serializer`/`Deserializer` 구현체로 객체 ↔ JSON 바이트를 변환한다.
-- **타입 정보 헤더(`__TypeId__`)와 그 대가**: 직렬화기가 메시지에 Java 풀
-  클래스명을 헤더로 자동으로 넣어, 컨슈머가 어떤 타입으로 역직렬화할지 알게
-  해준다. 편리하지만 프로듀서·컨슈머가 같은 Java 클래스 구조를 공유해야 하는
-  암묵적 결합이 생긴다 — 다른 언어로 만든 서비스와는 안 통한다.
-- **보안 — 신뢰 패키지(Trusted Packages)**: 헤더에 적힌 아무 클래스나 믿고
-  역직렬화하면 임의 클래스 인스턴스화(역직렬화 공격) 위험이 있다. 역직렬화기가
-  기본적으로 화이트리스트에 없는 패키지는 거부하도록 설계돼 있어,
-  `addTrustedPackages(...)`로 허용 패키지를 명시해야 한다.
-- **Schema Registry 개념 (실습 없음)**: Confluent Schema Registry는 메시지에
-  Java 클래스명 대신 스키마 ID만 담고, 실제 스키마(Avro/Protobuf/JSON Schema)는
-  중앙 레지스트리에 등록해 조회한다. 언어 중립적이고, 호환성 모드
-  (backward/forward/full)로 스키마 진화를 배포 전에 검증할 수 있다. 이
-  프로젝트엔 Schema Registry 인프라가 없어 개념만 다루고, 나중에 별도로 인프라를
-  추가해 Avro로 실습해보고 싶다는 의견이 있어 후속 과제로 남긴다.
-- **역직렬화 실패(Poison Pill)와 `ErrorHandlingDeserializer`**: 역직렬화기를
-  단독으로 쓰면, 역직렬화 실패가 `Consumer.poll()` 내부(Spring 개입 전)에서
-  `SerializationException`으로 터져 **컨슈머 스레드 자체가 죽는다.**
-  `ErrorHandlingDeserializer`로 감싸면 실패를 "오염된 레코드"로 변환해 컨테이너의
-  `DefaultErrorHandler`(Chapter 8에서 이미 배후에서 동작 중이던 그 메커니즘)로
-  정상적으로 넘겨준다.
+### 1. JSON 직렬화
+
+Spring Kafka가 Jackson 기반으로 제공하는 `Serializer`/`Deserializer`
+구현체로 객체 ↔ JSON 바이트를 변환한다. 지금까지 계속 써온 `StringSerializer`와
+원리는 같다 — `Serializer<T>`/`Deserializer<T>` 인터페이스를 구현해서
+"바이트로 어떻게 바꿀지"만 다르게 정의한 것뿐이다. `KafkaTemplate<String,
+OrderEvent>`처럼 값 타입 파라미터만 바뀌고 나머지(파티션 키 기반 라우팅,
+`send()`의 비동기 리턴 타입 등)는 Chapter 6~11에서 다룬 것과 동일하게
+동작한다.
+
+### 2. 타입 정보 헤더(`__TypeId__`)와 그 대가
+
+직렬화기가 메시지에 Java 풀 클래스명(`io.hkarling.learning.kafka.OrderEvent`
+같은 문자열)을 헤더로 자동으로 넣어, 컨슈머가 어떤 타입으로 역직렬화할지
+알게 해준다. 편리하지만 프로듀서·컨슈머가 같은 Java 클래스 구조를 공유해야
+하는 암묵적 결합이 생긴다 — 다른 언어로 만든 서비스는 이 헤더값을 몰라서
+처음부터 못 쓰고, 같은 Java 진영이어도 클래스가 패키지 경로째로 이동하면
+헤더에 박힌 옛 경로와 컨슈머 쪽 실제 클래스 경로가 어긋나 역직렬화가
+깨진다.
+
+### 3. 보안 — 신뢰 패키지(Trusted Packages)
+
+헤더에 적힌 아무 클래스나 믿고 역직렬화하면 임의 클래스 인스턴스화(역직렬화
+공격) 위험이 있다 — 공격자가 메시지 헤더에 악의적인 클래스명을 심어 보내면,
+역직렬화기가 그 클래스를 로드해 인스턴스화하려 시도하는 과정에서 원치 않는
+코드가 실행될 수 있다. 역직렬화기가 기본적으로 화이트리스트에 없는 패키지는
+거부하도록 설계돼 있어, `addTrustedPackages(...)`로 허용 패키지를 명시해야
+한다. 이번 챕터에서는 `io.hkarling.learning.kafka`만 신뢰 패키지로 등록했다.
+
+### 4. Schema Registry 개념 (실습 없음)
+
+Confluent Schema Registry는 메시지에 Java 클래스명 대신 스키마 ID(작은
+정수)만 담고, 실제 스키마(Avro/Protobuf/JSON Schema)는 중앙 레지스트리에
+등록해 조회한다. 이렇게 하면 두 가지가 동시에 해결된다 — 첫째, 클래스명
+대신 언어 중립적인 스키마 정의를 쓰므로 다른 언어로 만든 서비스와도 통신이
+가능해진다. 둘째, 호환성 모드(backward/forward/full)로 "이 스키마 변경이
+기존 컨슈머/프로듀서를 깨뜨리지 않는가"를 배포 파이프라인 단계에서 미리
+검증할 수 있다 — 지금 이 프로젝트의 JSON 방식은 이런 검증 장치가 전혀
+없어서, 스키마가 바뀌면 배포하고 나서야(런타임에) 문제를 발견하게 된다.
+이 프로젝트엔 Schema Registry 인프라가 없어 개념만 다루고, 나중에 별도로
+인프라를 추가해 Avro로 실습해보고 싶다는 의견이 있어 후속 과제로 남긴다.
+
+### 5. 역직렬화 실패(Poison Pill)와 `ErrorHandlingDeserializer`
+
+역직렬화기를 단독으로 쓰면, 역직렬화 실패가 `Consumer.poll()` 내부(Spring
+개입 전)에서 `SerializationException`으로 터져 **컨슈머 스레드 자체가
+죽는다** — 이 예외는 리스너 메서드 호출 전에 발생하므로 `DefaultErrorHandler`가
+아예 관여할 기회조차 없다. `ErrorHandlingDeserializer`로 감싸면 역직렬화를
+try-catch로 감싼 뒤 실패를 "오염된 레코드"(`DeserializationException`을
+값으로 담은 레코드)로 변환해서, 컨테이너의 `DefaultErrorHandler`(Chapter 8에서
+이미 배후에서 동작 중이던 그 메커니즘)로 정상적으로 넘겨준다. 즉
+역직렬화 실패를 "커널 패닉"에서 "리스너가 처리하는 평범한 예외"로
+격하시키는 역할을 한다.
 
 ## 진행 과정
 
@@ -239,11 +270,15 @@ OrderEvent>` 하나만 추가해도 Boot는 "ConsumerFactory 있네"라고 판�
 
 ## 트레이드오프 / 실무 함정 / 안티패턴
 
-**트레이드오프**: JSON은 사람이 읽을 수 있고 스키마 강제가 없어 빠르게
-시작하기 좋지만, 타입 안전성과 스키마 진화 관리는 전적으로 애플리케이션
-코드(그리고 개발자의 규율)에 맡겨진다. Avro/Protobuf + Schema Registry는
-초기 설정 비용이 있지만 스키마 호환성을 배포 파이프라인 차원에서 강제할 수
-있다.
+**트레이드오프**: JSON은 사람이 읽을 수 있고(`kafka-console-consumer`로 바로
+읽힘) 스키마 강제가 없어 빠르게 시작하기 좋지만, 타입 안전성과 스키마 진화
+관리는 전적으로 애플리케이션 코드(그리고 개발자의 규율)에 맡겨진다 — 필드를
+빼거나 타입을 바꿔도 컴파일 타임/배포 타임에는 아무도 막아주지 않고, 실제
+메시지가 흘러야만(런타임) 드러난다. 메시지 크기도 필드명을 매번 문자열로
+반복해서 담기 때문에 Avro/Protobuf 같은 바이너리 포맷보다 크다. Avro/Protobuf
++ Schema Registry는 스키마 레지스트리·직렬화 포맷 학습 등 초기 설정 비용이
+있지만, 스키마 호환성을 배포 파이프라인 차원에서 강제할 수 있고 메시지 크기도
+더 작다.
 
 **실무 함정 (이번 챕터 최대 수확)**: 커스텀 `ProducerFactory`/
 `ConsumerFactory`/`KafkaTemplate` 빈을 추가할 때, Spring Boot의 자동 구성

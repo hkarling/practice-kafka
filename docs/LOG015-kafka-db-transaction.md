@@ -12,29 +12,57 @@ Phase 2 마지막 챕터. DB에 상태를 저장하고 그 결과를 Kafka로 �
 
 ## 개념 정리
 
-- **Kafka 프로듀서 트랜잭션**: `transactional.id`를 설정하면 프로듀서가 여러 토픽/파티션에
-  걸친 발행을 하나의 원자적 단위로 묶을 수 있다(`beginTransaction`/`commitTransaction`/
-  `abortTransaction`). `DefaultKafkaProducerFactory.setTransactionIdPrefix(String)`을
-  호출하면 그 팩토리로 만드는 프로듀서가 트랜잭셔널해진다(`transactionCapable() == true`).
-- **`ChainedKafkaTransactionManager`는 Spring Kafka 4.1.0에서 이미 `@Deprecated`다** —
-  소스(`ChainedKafkaTransactionManager.java`)에서 직접 확인했다. DB 트랜잭션 매니저와
-  Kafka 트랜잭션 매니저를 하나로 묶는 예전 방식인데, 이제는 권장되지 않는다.
-- **대신 Spring Kafka는 별도 체이닝 없이도 자동 동기화를 지원한다**: `@Transactional`
-  (예: JDBC `DataSourceTransactionManager`)이 이미 활성화된 상태에서 트랜잭셔널
-  `KafkaTemplate.send()`를 호출하면, `ProducerFactoryUtils.getTransactionalResourceHolder(...)`가
-  `TransactionSynchronizationManager.isSynchronizationActive()`를 감지해서 그 Kafka
-  발행을 현재 DB 트랜잭션에 자동으로 동기화한다(`KafkaResourceSynchronization` 등록).
-  DB 트랜잭션이 커밋되면 Kafka 트랜잭션도 커밋되고, DB가 롤백되면 Kafka도 abort된다.
-  이것도 소스(`ProducerFactoryUtils.java`, `KafkaTemplate.java`)를 까서 확인한 내용이다.
-- **`isolation.level=read_committed`**: 컨슈머 설정. 이 값이면 abort되거나 아직 커밋
-  안 된 트랜잭션의 레코드는 컨슈머에 아예 안 보인다. 기본값(`read_uncommitted`)은
-  커밋 여부와 무관하게 다 보여준다 — 그래서 "커밋됐는지"를 검증하려면 반드시
-  `read_committed` 컨슈머로 확인해야 한다.
-- **이래도 진짜 원자성은 아니다**: 이번 챕터에서 만든 동기화는 "같은 프로세스, 같은
-  메서드 안에서 예외가 나서 롤백되는 경우"는 확실히 커버한다. 하지만 DB 커밋이 실제로
-  끝난 **직후** 프로세스가 죽어서 Kafka 커밋이 아예 실행될 기회조차 없는 경우는 못
-  막는다 — 진짜 2단계 커밋(2PC)이 아니라 "같은 스레드의 트랜잭션 동기화 콜백"일 뿐이기
-  때문이다. 이 갭이 Outbox 패턴이 필요한 이유다.
+### 1. Kafka 프로듀서 트랜잭션
+
+`transactional.id`를 설정하면 프로듀서가 여러 토픽/파티션에 걸친 발행을
+하나의 원자적 단위로 묶을 수 있다(`beginTransaction`/`commitTransaction`/
+`abortTransaction`). 여러 토픽에 나눠 쓴 메시지들이 전부 커밋되거나 전부
+abort되는 것을 보장한다는 뜻이다. `DefaultKafkaProducerFactory.setTransactionIdPrefix(String)`을
+호출하면 그 팩토리로 만드는 프로듀서가 트랜잭셔널해진다
+(`transactionCapable() == true`). 내부적으로는 브로커 쪽 트랜잭션
+코디네이터가 `__transaction_state` 내부 토픽에 트랜잭션 상태를 기록하며
+진행 상황을 추적한다.
+
+### 2. `ChainedKafkaTransactionManager`는 Spring Kafka 4.1.0에서 이미 `@Deprecated`다
+
+소스(`ChainedKafkaTransactionManager.java`)에서 직접 확인했다. DB
+트랜잭션 매니저와 Kafka 트랜잭션 매니저를 하나로 묶어 두 리소스를 함께
+커밋/롤백시키는 예전 방식인데, 이제는 권장되지 않는다.
+
+### 3. 대신 Spring Kafka는 별도 체이닝 없이도 자동 동기화를 지원한다
+
+`@Transactional`(예: JDBC `DataSourceTransactionManager`)이 이미 활성화된
+상태에서 트랜잭셔널 `KafkaTemplate.send()`를 호출하면,
+`ProducerFactoryUtils.getTransactionalResourceHolder(...)`가
+`TransactionSynchronizationManager.isSynchronizationActive()`를 감지해서
+그 Kafka 발행을 현재 DB 트랜잭션에 자동으로 동기화한다
+(`KafkaResourceSynchronization` 등록). DB 트랜잭션이 커밋되면 Kafka
+트랜잭션도 커밋되고, DB가 롤백되면 Kafka도 abort된다 — 명시적인 체이닝
+설정 없이 "지금 활성 DB 트랜잭션이 있는가"만 보고 자동으로 엮인다는 게
+포인트다. 이것도 소스(`ProducerFactoryUtils.java`, `KafkaTemplate.java`)를
+까서 확인한 내용이다.
+
+### 4. `isolation.level=read_committed`
+
+컨슈머 설정. 이 값이면 abort되거나 아직 커밋 안 된 트랜잭션의 레코드는
+컨슈머에 아예 안 보인다 — 브로커가 트랜잭션 커밋 마커를 확인하기 전까지는
+그 레코드를 컨슈머에게 노출하지 않는다는 뜻이다. 기본값(`read_uncommitted`)은
+커밋 여부와 무관하게 다 보여준다(트랜잭션이 abort된 레코드까지 그대로
+보인다). 그래서 "커밋됐는지"를 검증하려면 반드시 `read_committed` 컨슈머로
+확인해야 한다 — `read_uncommitted` 컨슈머는 발행 성공/실패를 구분할 수
+있는 신호 자체를 못 준다.
+
+### 5. 이래도 진짜 원자성은 아니다
+
+이번 챕터에서 만든 동기화는 "같은 프로세스, 같은 메서드 안에서 예외가
+나서 롤백되는 경우"는 확실히 커버한다. 하지만 DB 커밋이 실제로 끝난
+**직후** 프로세스가 죽어서 Kafka 커밋이 아예 실행될 기회조차 없는 경우는
+못 막는다 — 진짜 2단계 커밋(2PC, 두 리소스가 "커밋 준비 완료"를 서로
+확인한 뒤에야 실제 커밋을 실행하는 프로토콜)이 아니라 "같은 스레드의
+트랜잭션 동기화 콜백"일 뿐이기 때문이다. DB 커밋과 Kafka 커밋은 여전히
+**순차적으로 실행되는 별개의 두 단계**이고, 그 사이에 프로세스가 죽으면
+DB는 이미 확정됐는데 Kafka는 발행 시도조차 못 한 상태로 영원히 남는다.
+이 갭이 Outbox 패턴이 필요한 이유다.
 
 ## 진행 과정
 
@@ -237,7 +265,12 @@ A. `assertThatThrownBy`로 우리가 명시적으로 예상한 예외이기 때�
 **실무 함정**: 단일 브로커(또는 소규모) 개발/테스트 환경에서 Kafka 트랜잭션을 처음
 켤 때 `__transaction_state` 토픽의 기본 복제 계수(3)가 브로커 수보다 크면
 `InitProducerId`가 응답 없이 타임아웃난다 — 에러 메시지가 트랜잭션 자체의 문제처럼
-보이지만 실제 원인은 복제 계수 불일치다. 이번에 정확히 겪었다.
+보이지만 실제 원인은 복제 계수 불일치다. 이번에 정확히 겪었다. 반대로 운영
+클러스터에서는 `__transaction_state`의 복제 계수를 낮추면 안 된다 — 이 내부
+토픽은 모든 트랜잭셔널 프로듀서가 의존하는 코디네이터 상태 저장소라서, 이
+토픽을 담당하는 브로커가 죽으면 그 파티션에 물린 모든 트랜잭션이 멈춘다.
+복제 계수가 충분해야(기본값 3, `min.isr=2`) 브로커 하나가 죽어도 코디네이터
+기능이 살아남는다.
 
 **안티패턴**: 트랜잭셔널 프로듀서 발행 성공을 "예외가 안 났다"만으로 판단하는 것.
 `send()`는 비동기라 호출 직후 로그가 찍혀도 실제 커밋 여부와 무관하다 — `read_committed`

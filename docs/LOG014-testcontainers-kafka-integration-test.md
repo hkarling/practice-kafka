@@ -11,30 +11,61 @@ Chapter 8부터 13까지 계속 로컬 Docker Compose의 실제 Kafka(`localhost
 
 ## 개념 정리
 
-- **Testcontainers**: 테스트 실행 시점에 실제 Docker 컨테이너를 띄우고 테스트가 끝나면
-  정리해주는 라이브러리. `@EmbeddedKafka`(Spring Kafka 자체 제공, JVM 내 인메모리 브로커)와
-  달리 실제 Kafka Docker 이미지를 그대로 쓰기 때문에 프로덕션 환경과의 동작 차이가 적다.
-- **이미지별 전용 클래스가 분리되어 있다**: `testcontainers-kafka` 모듈(Testcontainers 2.0)에는
-  `org.testcontainers.kafka.KafkaContainer`(`apache/kafka`, `apache/kafka-native` 전용)와
-  `org.testcontainers.kafka.ConfluentKafkaContainer`(`confluentinc/cp-kafka` 전용) 두 클래스가
-  있다. 둘 다 생성자에서 `DockerImageName.assertCompatibleWith(...)`로 이미지 이름을 검증하기
-  때문에, 로컬 `docker-compose.yml`이 쓰는 이미지(`confluentinc/cp-kafka:7.6.1`)와 맞는 클래스를
-  써야 한다 — 안 맞으면 컨테이너를 아예 못 만들고 즉시 예외가 난다.
-- **Testcontainers 2.0의 아티팩트 이름 변경**: `org.testcontainers:kafka`, `org.testcontainers:junit-jupiter`
-  같은 예전 좌표가 `org.testcontainers:testcontainers-kafka`, `org.testcontainers:testcontainers-junit-jupiter`로
-  바뀌었다(모든 모듈에 `testcontainers-` 접두사 통일). Spring Boot 4.1.0의 `testcontainers-bom:2.0.5`를
-  직접 까봐서 확인했다.
-- **`@ServiceConnection`의 실제 동작 범위**: `@Container` 필드에 `@ServiceConnection`을 붙이면
-  Spring이 컨테이너의 접속 정보를 담은 `KafkaConnectionDetails` 빈을 자동 등록해준다. 그런데
-  이 정보를 실제로 반영하는 코드는 **Spring Boot가 자동 설정하는 `kafkaProducerFactory`/
-  `kafkaConsumerFactory` 빈 내부에만** 있다(`KafkaAutoConfiguration.applyKafkaConnectionDetailsForProducer/Consumer`).
-  이 프로젝트처럼 `KafkaConfig`에 커스텀 `ProducerFactory`/`ConsumerFactory` 빈을 직접 정의해서
-  Spring Boot의 자동 설정 빈이 `@ConditionalOnMissingBean`으로 백오프된 경우, `@ServiceConnection`은
-  사실상 아무 효과가 없다 — 아래 "시행착오" 참고.
-- **`@DynamicPropertySource`**: `@ServiceConnection`과 달리 `Environment`의 프로퍼티 값
-  자체(`spring.kafka.bootstrap-servers`)를 직접 등록한다. 그래서 커스텀 빈이든 자동 설정
-  빈이든 `KafkaProperties.buildProducerProperties()`/`buildConsumerProperties()`를 호출하는
-  모든 코드가 예외 없이 이 값을 읽어간다.
+### 1. Testcontainers란
+
+테스트 실행 시점에 실제 Docker 컨테이너를 띄우고 테스트가 끝나면 정리해주는
+라이브러리. `@EmbeddedKafka`(Spring Kafka 자체 제공, JVM 내 인메모리 브로커)와
+달리 실제 Kafka Docker 이미지를 그대로 쓰기 때문에 프로덕션 환경과의 동작
+차이가 적다 — 브로커 설정, 프로토콜 동작, 트랜잭션 코디네이터 같은 것까지
+진짜 Kafka 그대로 검증된다. 대신 Docker 데몬이 필요하고, 컨테이너 기동
+시간만큼 테스트가 느려진다는 대가가 있다.
+
+### 2. 이미지별 전용 클래스가 분리되어 있다
+
+`testcontainers-kafka` 모듈(Testcontainers 2.0)에는
+`org.testcontainers.kafka.KafkaContainer`(`apache/kafka`, `apache/kafka-native`
+전용)와 `org.testcontainers.kafka.ConfluentKafkaContainer`(`confluentinc/cp-kafka`
+전용) 두 클래스가 있다. 둘 다 생성자에서 `DockerImageName.assertCompatibleWith(...)`로
+이미지 이름을 검증하기 때문에, 로컬 `docker-compose.yml`이 쓰는 이미지
+(`confluentinc/cp-kafka:7.6.1`)와 맞는 클래스를 써야 한다 — 안 맞으면
+컨테이너를 아예 못 만들고 즉시 예외가 난다. 이 검증이 실행 시점(생성자)에
+일어나는 이유는, 벤더마다 컨테이너 내부 부팅 스크립트나 환경변수 규약이
+달라서 클래스 하나로 모든 이미지를 지원하기 어렵기 때문이다.
+
+### 3. Testcontainers 2.0의 아티팩트 이름 변경
+
+`org.testcontainers:kafka`, `org.testcontainers:junit-jupiter` 같은 예전
+좌표가 `org.testcontainers:testcontainers-kafka`,
+`org.testcontainers:testcontainers-junit-jupiter`로 바뀌었다(모든 모듈에
+`testcontainers-` 접두사 통일). Spring Boot 4.1.0의 `testcontainers-bom:2.0.5`를
+직접 까봐서 확인했다 — 이런 메이저 버전 업의 아티팩트 좌표 변경은 검색
+결과나 옛 기억에 의존하면 바로 틀리기 쉬운 부분이라, BOM을 직접 열어보는
+습관이 필요하다.
+
+### 4. `@ServiceConnection`의 실제 동작 범위
+
+`@Container` 필드에 `@ServiceConnection`을 붙이면 Spring이 컨테이너의 접속
+정보를 담은 `KafkaConnectionDetails` 빈을 자동 등록해준다. 그런데 이 정보를
+실제로 반영하는 코드는 **Spring Boot가 자동 설정하는 `kafkaProducerFactory`/
+`kafkaConsumerFactory` 빈 내부에만** 있다
+(`KafkaAutoConfiguration.applyKafkaConnectionDetailsForProducer/Consumer`).
+다시 말해 `@ServiceConnection`은 "커넥션 정보를 담은 빈을 하나 만들어주는 것"
+까지만 하고, 그 정보를 실제로 읽어서 반영하는 건 전적으로 자동 설정 빈의
+구현에 달려 있다. 이 프로젝트처럼 `KafkaConfig`에 커스텀
+`ProducerFactory`/`ConsumerFactory` 빈을 직접 정의해서 Spring Boot의 자동
+설정 빈이 `@ConditionalOnMissingBean`으로 백오프된 경우, `KafkaConnectionDetails`를
+읽어가는 코드 자체가 애초에 실행되지 않으므로 `@ServiceConnection`은 사실상
+아무 효과가 없다 — 아래 "시행착오" 참고.
+
+### 5. `@DynamicPropertySource`
+
+`@ServiceConnection`과 달리 `Environment`의 프로퍼티 값 자체
+(`spring.kafka.bootstrap-servers`)를 직접 등록한다. `KafkaConnectionDetails`라는
+중간 빈을 거치지 않고 프로퍼티 소스 레벨에서 값을 주입하기 때문에, 커스텀
+빈이든 자동 설정 빈이든 `KafkaProperties.buildProducerProperties()`/
+`buildConsumerProperties()`를 호출하는 모든 코드가 예외 없이 이 값을
+읽어간다 — "어떤 빈이 그 값을 인지하는가"라는 조건 자체가 없어지는
+셈이다.
 
 ## 진행 과정
 
@@ -213,6 +244,11 @@ Docker Compose Kafka가 정확히 그 포트에 떠 있었기 때문이다. 만�
 우연히 같으면 예외 없이 동작하는 것처럼 보여서 훨씬 늦게 발견된다. 커스텀 Kafka 빈을
 쓰는 프로젝트에서 Testcontainers를 도입할 땐 반드시 `@DynamicPropertySource`로
 직접 검증하거나, 커스텀 빈들이 `KafkaConnectionDetails`를 인지하도록 고쳐야 한다.
+이번 챕터처럼 "우연히 그럴싸하게 동작하는" 상황을 조기에 잡는 실무 습관은,
+연결에 쓰인 실제 `bootstrap.servers` 값을 로그로 한 번 찍어보는 것이다(Chapter 12에서
+`kafkaTemplate.getProducerFactory().getConfigurationProperties()`로 acks 값을
+직접 찍어봤던 것과 같은 접근) — 테스트 컨테이너의 랜덤 포트와 다른 값(특히 `9092`)이
+찍히면 바로 의심할 수 있다.
 
 **안티패턴**: assertion 없이 `Thread.sleep` + 로그 확인만으로 "테스트 통과"라고
 판단하는 것. 컨슈머가 메시지를 전혀 못 받아도 예외만 안 나면 초록불로 끝난다 — 이번

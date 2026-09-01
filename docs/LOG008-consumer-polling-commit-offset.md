@@ -9,23 +9,47 @@ Consumer가 메시지를 가져오는 방식(폴링)과 "여기까지 처리했�
 
 ## 개념 정리
 
-- **폴링(Poll loop)**: Kafka Consumer는 브로커가 push하는 게 아니라 `poll()`을 반복
-  호출해서 pull하는 구조. `@KafkaListener` 뒤의 `KafkaMessageListenerContainer`가
-  내부적으로 이 루프를 돌린다.
-- **오프셋 커밋**: 컨슈머 그룹이 파티션별로 "여기까지 처리했다"고 기록하는 것. 브로커의
-  `__consumer_offsets` 내부 토픽에 저장되며, **파티션마다 독립된 정수 하나**로만
-  관리된다 — 레코드 단위로 성공/실패를 따로 기록하지 않는다.
-- **auto-commit vs manual commit**: auto-commit(`enable.auto.commit=true`, 기본값)은
-  `poll()` 시점마다 주기적으로 백그라운드 커밋되는데, "처리 완료"보다 커밋이 먼저
-  일어날 수 있어 유실 가능성이 있다. manual commit은 애플리케이션이 커밋 시점을
-  직접 결정한다.
-- **Spring Kafka AckMode**: `RECORD`(레코드마다 자동 커밋) / `BATCH`(기본값, 배치
-  끝나면 자동 커밋) / `MANUAL`(다음 poll 시점에 커밋) / `MANUAL_IMMEDIATE`
-  (`acknowledge()` 호출 즉시 동기 커밋).
-- **오프셋은 (그룹, 파티션) 단위로 독립적**: 같은 토픽이어도 컨슈머 그룹이 다르면
-  읽기 위치가 완전히 별개다. 새 그룹은 커밋 기록이 없으므로 `auto-offset-reset`
-  설정(여기서는 `earliest`)에 따라 처음부터 다시 읽는다 — 다른 그룹이 이미 다
-  읽었는지와 무관하다.
+### 1. 폴링(Poll loop)
+
+Kafka Consumer는 브로커가 push하는 게 아니라 `poll()`을 반복 호출해서 pull하는 구조다.
+`@KafkaListener` 뒤의 `KafkaMessageListenerContainer`가 내부적으로 이 루프를 돌린다 —
+LOG004에서 만든 `ReplayConsumer`의 `while(true) { ... sleep(100) }` 폴링 루프가 사실은
+이 구조의 축소판이었다.
+
+### 2. 오프셋 커밋
+
+컨슈머 그룹이 파티션별로 "여기까지 처리했다"고 기록하는 것이다. 브로커의
+`__consumer_offsets` 내부 토픽에 저장되며, **파티션마다 독립된 정수 하나**로만 관리된다 —
+레코드 단위로 성공/실패를 따로 기록하지 않는다. 이 "정수 하나"라는 단순함이 이번 챕터
+진행 과정에서 실제로 부딪힌 함정(4번, 실패 레코드가 뒤에 오는 성공 커밋에 묻혀 넘어가는
+현상)의 근본 원인이다.
+
+### 3. auto-commit vs manual commit
+
+auto-commit(`enable.auto.commit=true`, 기본값)은 `poll()` 시점마다 주기적으로 백그라운드
+커밋되는데, "처리 완료"보다 커밋이 먼저 일어날 수 있어 유실 가능성이 있다. manual commit은
+애플리케이션이 커밋 시점을 직접 결정한다 — "처리가 실제로 끝난 뒤에만 커밋한다"는 걸
+코드로 보장할 수 있다는 게 이번 챕터에서 `MANUAL_IMMEDIATE`를 쓰는 이유다.
+
+### 4. Spring Kafka AckMode
+
+| AckMode | 커밋 시점 | 특징 |
+|---|---|---|
+| `RECORD` | 레코드 처리 직후 매번 | 유실 위험 가장 낮음, 커밋 빈도 가장 높음(오버헤드 큼) |
+| `BATCH` (기본값) | poll로 가져온 배치 처리가 끝난 뒤 | 커밋 횟수가 적어 효율적, 배치 중간 실패 시 그 배치 전체가 재처리될 수 있음 |
+| `MANUAL` | 애플리케이션이 `acknowledge()` 호출 → 다음 poll 시점에 실제 커밋 | 커밋 타이밍을 코드로 제어하되 약간의 지연 허용 |
+| `MANUAL_IMMEDIATE` | `acknowledge()` 호출 즉시 동기 커밋 | 가장 엄격한 제어, 레코드마다 동기 커밋이라 처리량은 가장 낮음 |
+
+이번 챕터는 `MANUAL_IMMEDIATE`로 "처리 성공 시점과 커밋 시점을 코드로 정확히 일치시키는"
+실험을 했다.
+
+### 5. 오프셋은 (그룹, 파티션) 단위로 독립적
+
+같은 토픽이어도 컨슈머 그룹이 다르면 읽기 위치가 완전히 별개다. 새 그룹은 커밋 기록이
+없으므로 `auto-offset-reset` 설정(여기서는 `earliest`)에 따라 처음부터 다시 읽는다 —
+다른 그룹이 이미 다 읽었는지와 무관하다. 이 독립성이 Pub/Sub의 물리적 근거다(LOG003) —
+서로 다른 그룹이 각자 토픽 전체를 독립적으로 재생할 수 있는 이유가 바로 오프셋이 그룹별로
+따로 관리되기 때문이다.
 
 ## 진행 과정
 
