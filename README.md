@@ -61,7 +61,7 @@ Kafka·PostgreSQL 인프라(Docker Compose)는 아직 구성 전이라, Kafka �
 ### Phase 3 — 핵심 패턴 심화
 - [x] 16. [at-least-once vs exactly-once](docs/LOG016-at-least-once-vs-exactly-once.md)
 - [x] 17. [멱등성 설계](docs/LOG017-idempotent-consumer-design.md)
-- [ ] 18. Outbox 패턴
+- [x] 18. [Outbox 패턴](docs/LOG018-outbox-pattern.md)
 - [ ] 19. Kafka Streams 기초
 - [ ] 20. CQRS + Kafka
 
